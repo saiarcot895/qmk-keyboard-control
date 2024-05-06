@@ -20,17 +20,13 @@ const ACTIVE_MODE_RGB  : u8 = 0x01;
 const RGB_SPEED        : u8 = 0x02;
 const GAME             : u8 = 0x03;
 
-const SUPPORTED_DEVICES : [(u16, u16, u16, u16); 2] = [(0x3297u16, 0x1969u16, 0xFF60u16, 0x61u16),
-                                                       (0x3434u16, 0x0120u16, 0xFF60u16, 0x61u16)];
-
 impl LinuxQmkConnector {
 
     fn connect_to_known_devices(&mut self) -> Result<(), Box<dyn Error>> {
-        let supported_devices_hash = HashSet::from(SUPPORTED_DEVICES);
         match HidApi::new() {
             Ok(api) => {
                 for device in api.device_list() {
-                    if supported_devices_hash.contains(&(device.vendor_id(), device.product_id(), device.usage_page(), device.usage())) {
+                    if device.usage_page() == 0xFF60u16 && device.usage() == 0x61u16 {
                         let device_handle = device.open_device(&api)?;
                         self.devices.insert((device.vendor_id(), device.product_id()), device_handle);
                     }
