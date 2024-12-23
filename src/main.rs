@@ -4,7 +4,7 @@ use std::error::Error;
 use hidapi::{HidApi, HidDevice};
 use zbus::{Connection, interface, proxy};
 use std::sync::{Arc, Mutex};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use udev::{Event, MonitorBuilder};
 
 #[derive(Default)]
@@ -15,10 +15,10 @@ struct LinuxQmkConnector {
 const GET_COMMAND : u8 = 0x08;
 const SET_COMMAND : u8 = 0x07;
 
-const ENABLE_BACKLIGHT : u8 = 0x00;
-const ACTIVE_MODE_RGB  : u8 = 0x01;
-const RGB_SPEED        : u8 = 0x02;
-const GAME             : u8 = 0x03;
+const ENABLE_BACKLIGHT : u8 = 0x80;
+const ACTIVE_MODE_RGB  : u8 = 0x81;
+const RGB_SPEED        : u8 = 0x82;
+const GAME             : u8 = 0x83;
 
 impl LinuxQmkConnector {
 
@@ -62,16 +62,30 @@ impl LinuxQmkConnector {
         self.devices.remove(&(vid, pid));
     }
 
-    fn send_message(&mut self, buf: &mut [u8]) {
-        let mut message_payload : [u8; 32] = [0; 32];
+    fn send_message(&mut self, buf: &[u8]) {
+        let mut message_payload : [u8; 33] = [0; 33];
         message_payload[1..buf.len() + 1].copy_from_slice(buf);
         self.devices.retain(|_, device| {
             match device.write(&message_payload) {
-                Ok(_) => {
-                    return true;
+                Ok(num_bytes) => {
+                    if (num_bytes < buf.len()) {
+                        println!("Error in writing all bytes to device. Only {} bytes written", num_bytes);
+                        return false;
+                    }
                 },
                 Err(e) => {
                     eprintln!("Error in writing to device: {}", e);
+                    return false;
+                }
+            }
+            let mut response_payload : [u8; 32] = [0; 32];
+            match device.read_timeout(&mut response_payload, 2000) {
+                Ok(num_bytes) => {
+                    println!("Read {} bytes", num_bytes);
+                    return true;
+                },
+                Err(e) => {
+                    eprintln!("Error in getting response from device: {}", e);
                     return false;
                 }
             }
@@ -79,11 +93,11 @@ impl LinuxQmkConnector {
     }
 
     fn game_changed(&mut self, game_value: u8) {
-        self.send_message(&mut [SET_COMMAND, GAME, game_value]);
+        self.send_message(&[SET_COMMAND, GAME, game_value]);
     }
 
     fn screensaver_state_changed(&mut self, locked: &bool) {
-        self.send_message(&mut [SET_COMMAND, ACTIVE_MODE_RGB, if *locked { 0x01 } else { 0x00 }]);
+        self.send_message(&[SET_COMMAND, ACTIVE_MODE_RGB, if *locked { 0x01 } else { 0x00 }]);
     }
 }
 
