@@ -13,6 +13,10 @@ hidapi = "2.6.1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1.15"
 udev = "^0.8"
+systemd-journal-logger = "2.2.0"
+simplelog = "0.12.2"
+log = { version = "0.4.22", features = ["kv"] }
+thiserror = "2.0.9"
 
 [profile.release]
 lto = true
