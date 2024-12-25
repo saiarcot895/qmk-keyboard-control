@@ -15,8 +15,6 @@ use thiserror::Error;
 struct SimpleDeviceInfo {
     vendor_id: u16,
     product_id: u16,
-    product_name: String,
-    device_name: String,
     device_handle: HidDevice,
 }
 
@@ -25,10 +23,16 @@ impl SimpleDeviceInfo {
         Self {
             vendor_id: device.vendor_id(),
             product_id: device.product_id(),
-            product_name: device.product_string().unwrap_or("Unknown").to_string(),
-            device_name: String::from_utf8_lossy(device.path().to_bytes()).to_string(),
             device_handle: device_handle,
         }
+    }
+
+    fn product_name(&self) -> String {
+        return self.device_handle.get_device_info().unwrap().product_string().unwrap_or("Unknown").to_string();
+    }
+
+    fn device_name(&self) -> String {
+        return String::from_utf8_lossy(self.device_handle.get_device_info().unwrap().path().to_bytes()).to_string();
     }
 }
 
@@ -62,14 +66,14 @@ impl LinuxQmkConnector {
     fn connect_to_device_with_device_info(&mut self, device: &DeviceInfo, api: &HidApi) -> Result<(), ConnectorError> {
         let device_handle = device.open_device(&api)?;
         let device_info = SimpleDeviceInfo::from_device_info(device, device_handle);
-        let metadata = fs::metadata(&device_info.device_name)?;
+        let metadata = fs::metadata(&device_info.device_name())?;
         match udev::Device::from_devnum(DeviceType::Character, metadata.st_rdev()) {
             Ok(udev_device_info) => {
-                info!("Connected to {} ({:x}:{:x}) via {:#?}", device_info.product_name, device_info.vendor_id, device_info.product_id, udev_device_info.devpath());
+                info!("Connected to {} ({:x}:{:x}) via {:#?}", device_info.product_name(), device_info.vendor_id, device_info.product_id, udev_device_info.devpath());
                 self.devices.insert(udev_device_info.devpath().to_string_lossy().to_string(), device_info);
             }
             Err(e) => {
-                error!("Error getting device information from udev for {}: {}", device_info.device_name, e);
+                error!("Error getting device information from udev for {}: {}", device_info.device_name(), e);
                 return Err(ConnectorError::UdevError(e));
             }
         }
@@ -100,7 +104,7 @@ impl LinuxQmkConnector {
     fn disconnect_from_device(&mut self, device_path: &str) {
         match self.devices.remove(device_path) {
             Some(device_info) => {
-                info!("Disconnected from {} ({:x}:{:x})", device_info.product_name, device_info.vendor_id, device_info.product_id);
+                info!("Disconnected from {} ({:x}:{:x})", device_info.product_name(), device_info.vendor_id, device_info.product_id);
             },
             None => {
                 debug!("No connection to {device_path} found");
