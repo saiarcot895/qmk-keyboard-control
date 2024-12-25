@@ -45,6 +45,8 @@ enum ConnectorError {
     UdevError(#[from] std::io::Error),
     #[error("error from dbus")]
     DbusError(#[from] zbus::Error),
+    #[error("incomplete response from device")]
+    IncompleteResponseError,
 }
 
 const GET_COMMAND : u8 = 0x08;
@@ -106,35 +108,43 @@ impl LinuxQmkConnector {
         }
     }
 
-    fn send_message(&mut self, buf: &[u8]) {
+    fn send_message_to_device(device: &SimpleDeviceInfo, buf: &[u8]) -> Result<[u8; 32], ConnectorError> {
+        let device_info = device;
         let mut message_payload : [u8; 33] = [0; 33];
         message_payload[1..buf.len() + 1].copy_from_slice(buf);
-        self.devices.retain(|_, device| {
-            match device.device_handle.write(&message_payload) {
-                Ok(num_bytes) => {
-                    debug!("Wrote {} bytes", num_bytes);
-                    if (num_bytes < buf.len()) {
-                        error!("Error in writing all bytes to device. Only {} bytes written", num_bytes);
-                        return false;
-                    }
-                },
-                Err(e) => {
-                    error!("Error in writing to device: {}", e);
-                    return false;
-                }
+        match device_info.device_handle.write(&message_payload) {
+            Ok(num_bytes) => {
+                debug!("Wrote {} bytes", num_bytes);
+            },
+            Err(e) => {
+                error!("Error in writing to device: {}", e);
+                return Err(ConnectorError::HidError(e));
             }
-            let mut response_payload : [u8; 32] = [0; 32];
-            match device.device_handle.read_timeout(&mut response_payload, 2000) {
-                Ok(num_bytes) => {
-                    debug!("Read {} bytes", num_bytes);
-                    if (num_bytes < buf.len()) {
-                        error!("Error in getting response from device. Only {} bytes received", num_bytes);
-                        return false;
-                    }
+        }
+        let mut response_payload : [u8; 32] = [0; 32];
+        match device_info.device_handle.read_timeout(&mut response_payload, 2000) {
+            Ok(num_bytes) => {
+                debug!("Read {} bytes", num_bytes);
+                if (num_bytes < buf.len()) {
+                    error!("Error in getting response from device. Only {} bytes received", num_bytes);
+                    return Err(ConnectorError::IncompleteResponseError);
+                }
+            },
+            Err(e) => {
+                error!("Error in getting response from device: {}", e);
+                return Err(ConnectorError::HidError(e));
+            }
+        }
+        Ok(response_payload)
+    }
+
+    fn send_message_to_all_devices(&mut self, buf: &[u8]) {
+        self.devices.retain(|device_path, device| {
+            match LinuxQmkConnector::send_message_to_device(device, buf) {
+                Ok(_) => {
                     return true;
                 },
-                Err(e) => {
-                    error!("Error in getting response from device: {}", e);
+                Err(_) => {
                     return false;
                 }
             }
@@ -142,11 +152,11 @@ impl LinuxQmkConnector {
     }
 
     fn game_changed(&mut self, game_value: u8) {
-        self.send_message(&[SET_COMMAND, GAME, game_value]);
+        self.send_message_to_all_devices(&[SET_COMMAND, GAME, game_value]);
     }
 
     fn screensaver_state_changed(&mut self, locked: &bool) {
-        self.send_message(&[SET_COMMAND, ACTIVE_MODE_RGB, if *locked { 0x01 } else { 0x00 }]);
+        self.send_message_to_all_devices(&[SET_COMMAND, ACTIVE_MODE_RGB, if *locked { 0x01 } else { 0x00 }]);
     }
 }
 
